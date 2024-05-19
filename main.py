@@ -6,6 +6,9 @@ import discord
 from discord.ext import commands
 import requests
 import base64
+import json
+import secrets
+import string
 
 # Fetch tokens from environment variables
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -28,52 +31,39 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def update_github_whitelist(hwid):
-    try:
-        # Construct the URL for the GitHub API request
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        print(f"Fetching file from URL: {url}")
+def fetch_github_content():
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    headers = {
+        'Authorization': f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Discord-Bot'
+    }
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    content = base64.b64decode(data['content']).decode('utf-8')
+    sha = data['sha']
+    return content, sha
 
-        # Set up headers with authorization
-        headers = {
-            'Authorization': f'token {GITHUB_TOKEN}',
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Discord-Bot'
-        }
+def update_github_content(content, sha):
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    headers = {
+        'Authorization': f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Discord-Bot'
+    }
+    updated_content_base64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+    payload = {
+        'message': 'Automated update of whitelist',
+        'content': updated_content_base64,
+        'sha': sha,
+        'branch': BRANCH_NAME
+    }
+    update_response = requests.put(url, headers=headers, json=payload)
+    return update_response.json()
 
-        # Get the current file content from GitHub
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        print(f"Received response from GitHub: {data}")
-
-        # Decode the current content from base64
-        current_content = base64.b64decode(data['content']).decode('utf-8')
-
-        # Check if the HWID already exists
-        if hwid in current_content:
-            return False  # HWID already exists
-
-        # Replace the first occurrence of ENTERHWIDHERE with the new HWID without extra quotes
-        updated_content = current_content.replace("ENTERHWIDHERE", hwid, 1)
-
-        # Encode the updated content to base64
-        updated_content_base64 = base64.b64encode(updated_content.encode('utf-8')).decode('utf-8')
-
-        # Prepare the payload for the update request
-        payload = {
-            'message': 'Automated update of whitelist',
-            'content': updated_content_base64,
-            'sha': data['sha'],
-            'branch': BRANCH_NAME
-        }
-
-        # Send the update request to GitHub
-        update_response = requests.put(url, headers=headers, json=payload)
-        print(f"Update response from GitHub: {update_response.json()}")
-        return True  # HWID added successfully
-    except Exception as e:
-        print(f"Error in updating GitHub whitelist: {e}")
-        raise
+def generate_key(length=12):
+    characters = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(characters) for i in range(length))
 
 @bot.event
 async def on_ready():
@@ -84,18 +74,57 @@ def check_channel(ctx):
 
 @bot.command(name='addhwid')
 @commands.check(check_channel)
-async def add_hwid(ctx, hwid: str):
-    print(f"Command received: addhwid {hwid}")
+async def add_hwid(ctx, hwid: str, key: str):
+    print(f"Command received: addhwid {hwid} with key {key}")
     try:
-        if update_github_whitelist(hwid):
-            await ctx.send(f"HWID {hwid} has been added to the whitelist.")
-            print(f"HWID {hwid} approved and added to the whitelist.")
+        content, sha = fetch_github_content()
+        data = json.loads(content)
+        
+        # Initialize lists if not present
+        if 'whitelistedHWIDs' not in data:
+            data['whitelistedHWIDs'] = []
+        if 'keys' not in data:
+            data['keys'] = []
+        
+        if key in data['keys']:
+            if hwid not in data['whitelistedHWIDs']:
+                data['whitelistedHWIDs'].append(hwid)
+                data['keys'].remove(key)  # Remove the key after use
+                update_github_content(json.dumps(data, indent=2), sha)
+                await ctx.send(f"HWID {hwid} has been added to the whitelist.")
+                print(f"HWID {hwid} approved and added to the whitelist.")
+            else:
+                await ctx.send(f"HWID {hwid} already exists in the whitelist.")
+                print(f"HWID {hwid} already exists in the whitelist.")
         else:
-            await ctx.send(f"HWID {hwid} already exists in the whitelist.")
-            print(f"HWID {hwid} already exists in the whitelist.")
+            await ctx.send(f"Invalid key.")
+            print(f"Invalid key used: {key}")
     except Exception as e:
         await ctx.send(f"Failed to add HWID: {str(e)}")
         print(f"Error while adding HWID {hwid}: {str(e)}")
+
+@bot.command(name='genkey')
+@commands.check(check_channel)
+async def gen_key(ctx):
+    print("Command received: genkey")
+    try:
+        new_key = generate_key()
+        content, sha = fetch_github_content()
+        data = json.loads(content)
+        
+        # Initialize lists if not present
+        if 'whitelistedHWIDs' not in data:
+            data['whitelistedHWIDs'] = []
+        if 'keys' not in data:
+            data['keys'] = []
+        
+        data['keys'].append(new_key)
+        update_github_content(json.dumps(data, indent=2), sha)
+        await ctx.send(f"Generated new key: {new_key}")
+        print(f"Generated new key: {new_key}")
+    except Exception as e:
+        await ctx.send(f"Failed to generate key: {str(e)}")
+        print(f"Error while generating key: {str(e)}")
 
 @add_hwid.error
 async def permission_error(ctx, error):
@@ -107,9 +136,12 @@ async def permission_error(ctx, error):
 async def on_message(message):
     if message.channel.id == ALLOWED_CHANNEL_ID and message.author.bot:
         if message.content.startswith("!addhwid "):
-            hwid = message.content[len("!addhwid "):]
-            ctx = await bot.get_context(message)
-            await add_hwid(ctx, hwid)
+            parts = message.content.split(" ")
+            if len(parts) == 3:
+                hwid = parts[1]
+                key = parts[2]
+                ctx = await bot.get_context(message)
+                await add_hwid(ctx, hwid, key)
     await bot.process_commands(message)
 
 bot.run(DISCORD_BOT_TOKEN)
