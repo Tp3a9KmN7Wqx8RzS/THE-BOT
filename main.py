@@ -100,6 +100,16 @@ async def add_hwid(ctx, hwid: str):
 @add_hwid.error
 async def permission_error(ctx, error):
     if isinstance(error, commands.CheckFailure):
-        await ctx.send("This command cannot be used in this channel.")
+        await ctx.send("You are not authorized to use this command in this channel.")
+
+# Listen for messages and trigger the addhwid command
+@bot.event
+async def on_message(message):
+    if message.channel.id == ALLOWED_CHANNEL_ID and message.author.bot:
+        if message.content.startswith("!addhwid "):
+            hwid = message.content[len("!addhwid "):]
+            ctx = await bot.get_context(message)
+            await add_hwid(ctx, hwid)
+    await bot.process_commands(message)
 
 bot.run(DISCORD_BOT_TOKEN)
