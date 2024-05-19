@@ -32,34 +32,56 @@ intents.message_content = True  # Enable message content intent
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def fetch_github_content():
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-    headers = {
-        'Authorization': f'token {GITHUB_TOKEN}',
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Discord-Bot'
-    }
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    content = base64.b64decode(data['content']).decode('utf-8')
-    sha = data['sha']
-    return content, sha
+    try:
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Discord-Bot'
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        data = response.json()
+        content = base64.b64decode(data['content']).decode('utf-8')
+        sha = data['sha']
+        return content, sha
+    except requests.exceptions.RequestException as e:
+        print(f"HTTP error occurred: {e}")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise
 
 def update_github_content(content, sha):
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-    headers = {
-        'Authorization': f'token {GITHUB_TOKEN}',
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Discord-Bot'
-    }
-    updated_content_base64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-    payload = {
-        'message': 'Automated update of whitelist',
-        'content': updated_content_base64,
-        'sha': sha,
-        'branch': BRANCH_NAME
-    }
-    update_response = requests.put(url, headers=headers, json=payload)
-    return update_response.json()
+    try:
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Discord-Bot'
+        }
+        updated_content_base64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        payload = {
+            'message': 'Automated update of whitelist',
+            'content': updated_content_base64,
+            'sha': sha,
+            'branch': BRANCH_NAME
+        }
+        response = requests.put(url, headers=headers, json=payload)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"HTTP error occurred: {e}")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise
 
 def generate_key(length=12):
     characters = string.ascii_letters + string.digits
