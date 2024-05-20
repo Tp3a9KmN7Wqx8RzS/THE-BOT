@@ -67,7 +67,7 @@ def update_github_content(content, sha):
         raise Exception(f"Failed to update GitHub content: {response.status_code} {response.text}")
     return response.json()
 
-def generate_key(length=18):
+def generate_key(length=32):
     characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
     return ''.join(random.choice(characters) for i in range(length))
 
@@ -131,18 +131,18 @@ async def add_hwid(ctx, hwid: str, key: str):
 
 @bot.command(name='genkey')
 @commands.check(check_channel)
-async def gen_key(ctx):
+async def gen_key(ctx, number_of_keys: int = 1):
     try:
-        new_key = generate_key()
+        new_keys = [generate_key() for _ in range(number_of_keys)]
         content, sha = fetch_github_content()
         data = parse_content(content)
 
-        data['keys'].append(new_key)
+        data['keys'].extend(new_keys)
         updated_content = dict_to_content(data)
         update_github_content(updated_content, sha)
-        await ctx.send(f"Generated new key: {new_key}")
+        await ctx.send(f"Generated new keys:\n" + "\n".join(new_keys))
     except Exception as e:
-        await ctx.send(f"Failed to generate key: {str(e)}")
+        await ctx.send(f"Failed to generate key(s): {str(e)}")
 
 @add_hwid.error
 async def permission_error(ctx, error):
