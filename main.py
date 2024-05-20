@@ -6,9 +6,7 @@ import discord
 from discord.ext import commands
 import requests
 import base64
-import json
-import secrets
-import string
+import random
 
 # Fetch tokens from environment variables
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -39,8 +37,11 @@ def fetch_github_content():
         'User-Agent': 'Discord-Bot'
     }
     response = requests.get(url, headers=headers)
-    response.raise_for_status()  # Raise an exception for HTTP errors
+    print(f"GitHub API response status code: {response.status_code}")
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch GitHub content: {response.status_code} {response.text}")
     data = response.json()
+    print(f"GitHub API response data: {data}")
     content = base64.b64decode(data['content']).decode('utf-8')
     sha = data['sha']
     return content, sha
@@ -60,12 +61,45 @@ def update_github_content(content, sha):
         'branch': BRANCH_NAME
     }
     response = requests.put(url, headers=headers, json=payload)
-    response.raise_for_status()  # Raise an exception for HTTP errors
+    print(f"GitHub update response status code: {response.status_code}")
+    print(f"GitHub update response data: {response.text}")
+    if response.status_code != 200:
+        raise Exception(f"Failed to update GitHub content: {response.status_code} {response.text}")
     return response.json()
 
-def generate_key(length=12):
-    characters = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(characters) for i in range(length))
+def generate_key(length=18):
+    characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
+    return ''.join(random.choice(characters) for i in range(length))
+
+def parse_content(content):
+    content_dict = {
+        "whitelistedHWIDs": [],
+        "keys": []
+    }
+    lines = content.split("\n")
+    current_key = None
+    for line in lines:
+        line = line.strip()
+        if line.startswith("whitelistedHWIDs"):
+            current_key = "whitelistedHWIDs"
+        elif line.startswith("keys"):
+            current_key = "keys"
+        elif line.startswith("}") or line == "":
+            continue
+        elif current_key and line.endswith(","):
+            line = line[:-1]
+            content_dict[current_key].append(line.strip('"'))
+    return content_dict
+
+def dict_to_content(content_dict):
+    content = "return {\n"
+    for key, values in content_dict.items():
+        content += f"  {key} = {{\n"
+        for value in values:
+            content += f'    "{value}",\n'
+        content += "  },\n"
+    content += "}\n"
+    return content
 
 @bot.event
 async def on_ready():
@@ -79,19 +113,14 @@ def check_channel(ctx):
 async def add_hwid(ctx, hwid: str, key: str):
     try:
         content, sha = fetch_github_content()
-        data = json.loads(content)
-        
-        # Initialize lists if not present
-        if 'whitelistedHWIDs' not in data:
-            data['whitelistedHWIDs'] = []
-        if 'keys' not in data:
-            data['keys'] = []
-        
+        data = parse_content(content)
+
         if key in data['keys']:
             if hwid not in data['whitelistedHWIDs']:
                 data['whitelistedHWIDs'].append(hwid)
                 data['keys'].remove(key)  # Remove the key after use
-                update_github_content(json.dumps(data, indent=2), sha)
+                updated_content = dict_to_content(data)
+                update_github_content(updated_content, sha)
                 await ctx.send(f"HWID {hwid} has been added to the whitelist.")
             else:
                 await ctx.send(f"HWID {hwid} already exists in the whitelist.")
@@ -106,16 +135,11 @@ async def gen_key(ctx):
     try:
         new_key = generate_key()
         content, sha = fetch_github_content()
-        data = json.loads(content)
-        
-        # Initialize lists if not present
-        if 'whitelistedHWIDs' not in data:
-            data['whitelistedHWIDs'] = []
-        if 'keys' not in data:
-            data['keys'] = []
-        
+        data = parse_content(content)
+
         data['keys'].append(new_key)
-        update_github_content(json.dumps(data, indent=2), sha)
+        updated_content = dict_to_content(data)
+        update_github_content(updated_content, sha)
         await ctx.send(f"Generated new key: {new_key}")
     except Exception as e:
         await ctx.send(f"Failed to generate key: {str(e)}")
