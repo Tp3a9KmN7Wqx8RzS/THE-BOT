@@ -7,6 +7,7 @@ from discord.ext import commands
 import requests
 import base64
 import random
+import time
 
 # Fetch tokens from environment variables
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -139,7 +140,16 @@ async def gen_key(ctx, number_of_keys: int = 1):
 
         data['keys'].extend(new_keys)
         updated_content = dict_to_content(data)
-        update_github_content(updated_content, sha)
+        update_response = update_github_content(updated_content, sha)
+
+        # Retry mechanism to ensure keys are updated
+        for _ in range(5):
+            content, _ = fetch_github_content()
+            updated_data = parse_content(content)
+            if all(key in updated_data['keys'] for key in new_keys):
+                break
+            time.sleep(1)  # Wait for a second before retrying
+
         await ctx.send(f"Generated new keys:\n" + "\n".join(new_keys))
     except Exception as e:
         await ctx.send(f"Failed to generate key(s): {str(e)}")
