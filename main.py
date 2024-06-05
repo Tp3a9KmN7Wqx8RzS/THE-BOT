@@ -12,6 +12,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.guilds = True
 intents.members = True  # You need this intent to send DMs
+intents.message_content = True  # Enable message content intent
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
